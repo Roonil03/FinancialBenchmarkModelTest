@@ -1,11 +1,13 @@
 # Running the notebook benchmark
 
-> **Global Indian data restriction:** The benchmark rejects selected price series with
-> missing values and rejects multiple market series until close timestamps and
-> execution availability have been verified. The legacy mode's default five-asset selection
-> therefore cannot currently complete. Review the data and select an eligible
-> series before executing. The Indian primary and separate US datasets are
-> described below.
+The default dataset is `india_indices`, the Indian primary study described
+below; `fred_sectors` is the separate US comparison.
+
+> **Legacy `global_indian` restriction:** In this separate mode, the benchmark
+> rejects selected price series with missing values and rejects multiple market
+> series until close timestamps and execution availability have been verified.
+> Its default five-asset selection therefore cannot currently complete. Review
+> the data and select an eligible series before executing legacy mode.
 
 This document contains the execution instructions for the notebook suite. The
 recommended path is the pinned CUDA Docker image; it keeps the host Python
@@ -29,6 +31,26 @@ Mamba implementation is unavailable.
 - Enough disk space for checkpoints, figures, executed notebooks, and the ZIP
   archive. Raw datasets are excluded from archives.
 
+## Required token setup
+
+Before any Compose or runner command below, set `JUPYTER_TOKEN` to a private,
+nonempty value in the shell you will use. Compose requires the token even for
+data preparation or a benchmark launched without opening JupyterLab. The
+Jupyter service binds to host loopback and requires this token.
+
+In PowerShell:
+
+```powershell
+$env:JUPYTER_TOKEN = Read-Host 'Jupyter token'
+```
+
+In Git Bash or WSL:
+
+```bash
+read -rs -p 'Jupyter token: ' JUPYTER_TOKEN
+export JUPYTER_TOKEN
+```
+
 ## Indian sector data
 
 The primary study uses the pinned third-party [Indian market historical dataset](https://github.com/aswinv90/indian-market-historical-data).
@@ -48,9 +70,16 @@ through that cutoff. Input features and sizing volatility are lagged one
 observed session; exact close-time execution is not established. Adjusted
 Close has not been verified as dividend-adjusted.
 
-The PowerShell and Bash runners can be prepared explicitly in the container, use
-`docker compose run --rm jupyter /opt/venv/bin/python scripts/prepare_india_indices.py`.
-The preparation script validates existing files and refuses hash mismatches.
+The PowerShell and Bash runners automatically download missing Indian input
+files. To prepare the data explicitly in the container before either runner,
+use:
+
+```bash
+docker compose run --rm jupyter /opt/venv/bin/python scripts/prepare_india_indices.py
+```
+
+The preparation script validates existing files and refuses hash mismatches;
+the PowerShell wrapper also checks existing hashes before launching Docker.
 
 ## FRED US sector data
 
@@ -80,15 +109,13 @@ market sample; do not pool rankings across datasets.
 
 ## Docker runner (recommended)
 
-Set `JUPYTER_TOKEN` to a private, nonempty value before starting Compose. The
-service binds to host loopback and requires this token. Native Windows does
-not provide the supported CUDA extension build path for genuine Mamba in this
-project; use WSL2 with NVIDIA Container Toolkit or the CUDA container.
+Complete the required token setup above in the same shell. Native Windows
+does not provide the supported CUDA extension build path for genuine Mamba in
+this project; use WSL2 with NVIDIA Container Toolkit or the CUDA container.
 
 For PowerShell 5.1 or 7, use `scripts/run_dl_benchmark.ps1`. For example:
 
 ```powershell
-$env:JUPYTER_TOKEN = Read-Host 'Jupyter token'
 .\scripts\run_dl_benchmark.ps1 -DatasetMode india_indices -Device gpu -WhatIf
 .\scripts\run_dl_benchmark.ps1 -DatasetMode india_indices -Device gpu -RunId india-study
 ```
@@ -102,8 +129,8 @@ explicit CPU selection.
 Checkpoint files use PyTorch serialization; load only checkpoints from trusted
 authors and keep raw market data and credentials outside the result archive.
 
-With the Indian sector data prepared as described above, run from Git Bash or WSL at
-the repository root:
+Run from Git Bash or WSL at the repository root; missing Indian input files
+are prepared automatically:
 
 ```bash
 DATASET_MODE=india_indices ./run_all_models.sh
@@ -147,7 +174,9 @@ docker compose run --rm `
 ```
 
 For a CPU smoke test, use `DEVICE=cpu` explicitly. GPU mode never silently
-falls back to CPU.
+falls back to CPU. This setting selects CPU computation inside the container;
+the supplied Compose service still requests `gpus: all` and requires an
+NVIDIA-capable Docker host even for a CPU smoke test.
 
 ## Runner parameters
 
@@ -167,7 +196,7 @@ falls back to CPU.
 | `OUTPUT_ROOT` | `outputs` | Root directory for run outputs. |
 | `INCLUDE_DATA` | `0` | Raw source data cannot be included; `1` is rejected. |
 | `PACKAGE_CHECKPOINTS` | `1` | Set to `0` to omit checkpoints from the ZIP; PowerShell uses `-ExcludeCheckpoints`. |
-| `ESTIMATE_ONLY` | `0` | Set to `1` for a measured one-epoch GPU timing pilot. |
+| `ESTIMATE_ONLY` | `0` | Set to `1` for a measured one-epoch timing pilot on the selected device, per selected model using the first selected seed and fold. |
 
 Examples from Git Bash/WSL (the CPU smoke test is for development checks,
 not the full GPU benchmark):
