@@ -51,8 +51,10 @@ DATASET_MODE=india_indices RUN_ID=full DEVICE=gpu RESUME_MODE=auto MAX_RETRIES=2
 `DEVICE=gpu` fails fast when CUDA is unavailable. CPU use must be explicit with
 `DEVICE=cpu`; this selects CPU computation inside the container. The supplied
 Compose service still requests `gpus: all`, so its NVIDIA host requirements
-also apply to CPU runs. `ESTIMATE_ONLY=1` measures one epoch per selected model
-using the first selected seed and fold on the selected device.
+also apply to CPU runs. `ESTIMATE_ONLY=1` uses the first selected seed and fold
+on the selected device with `EPOCHS=1`. Each selected model still runs bounded
+validation tuning before its final training epoch; measured time covers the
+whole benchmark notebook, including tuning, evaluation and notebook overhead.
 `RESUME_MODE` is `auto`, `restart`, or `fail`. Raw data is omitted
 from the final ZIP; `INCLUDE_DATA=1` is rejected. Checkpoints are included
 by default; `PACKAGE_CHECKPOINTS=0` excludes them.

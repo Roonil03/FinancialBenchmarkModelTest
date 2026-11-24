@@ -196,7 +196,7 @@ NVIDIA-capable Docker host even for a CPU smoke test.
 | `OUTPUT_ROOT` | `outputs` | Root directory for run outputs. |
 | `INCLUDE_DATA` | `0` | Raw source data cannot be included; `1` is rejected. |
 | `PACKAGE_CHECKPOINTS` | `1` | Set to `0` to omit checkpoints from the ZIP; PowerShell uses `-ExcludeCheckpoints`. |
-| `ESTIMATE_ONLY` | `0` | Set to `1` for a measured one-epoch timing pilot on the selected device, per selected model using the first selected seed and fold. |
+| `ESTIMATE_ONLY` | `0` | Set to `1` for a measured benchmark-notebook pilot on the selected device, per selected model using the first selected seed and fold with `EPOCHS=1`. Includes tuning and notebook overhead. |
 
 Examples from Git Bash/WSL (the CPU smoke test is for development checks,
 not the full GPU benchmark):
@@ -262,8 +262,11 @@ On a subsequent `auto` invocation with a matching run identity, an unfinished
 unit with neither checkpoint present starts training from epoch zero. Missing
 checkpoints alone therefore do not make every later invocation fail.
 
-`ESTIMATE_ONLY=1` measures pilot timing on the actual selected device and
-writes `telemetry/timing.json`.
+`ESTIMATE_ONLY=1` uses the first selected seed and fold with `EPOCHS=1` on the
+actual selected device. Bounded validation tuning still runs before the final
+training epoch (two one-epoch tuning trials with the supplied configuration).
+`telemetry/timing.json` records whole benchmark-notebook durations, including
+tuning, evaluation and notebook overhead, rather than isolated epoch timings.
 The pilot ends with status `pilot_complete` and does not produce a ZIP.
 
 ## Outputs and portable archive
