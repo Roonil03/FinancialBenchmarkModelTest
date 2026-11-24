@@ -192,7 +192,7 @@ NVIDIA-capable Docker host even for a CPU smoke test.
 | `DEVICE` | `gpu` | `gpu` or explicit `cpu`. |
 | `RESUME_MODE` | `auto` | `auto` resumes compatible units; `restart` archives prior state; `fail` refuses an existing run. |
 | `EPOCHS` | `100` | Positive training epoch count. |
-| `MAX_RETRIES` | `2` | Retries after a failure only when a compatible checkpoint exists. |
+| `MAX_RETRIES` | `2` | Additional attempts within the invocation, gated by a readable latest or previous checkpoint with matching model/seed/fold; the trainer then checks full compatibility. |
 | `OUTPUT_ROOT` | `outputs` | Root directory for run outputs. |
 | `INCLUDE_DATA` | `0` | Raw source data cannot be included; `1` is rejected. |
 | `PACKAGE_CHECKPOINTS` | `1` | Set to `0` to omit checkpoints from the ZIP; PowerShell uses `-ExcludeCheckpoints`. |
@@ -244,11 +244,26 @@ an absent optional suite as tests passing.
 ## Resume, failure, and timing behaviour
 
 Each unit writes atomic checkpoints under
-`outputs/<run_id>/checkpoints/<model>/seed_<seed>/fold_<fold>/`. In `auto` mode, completed
-units are skipped and failed units resume only from a compatible checkpoint.
-Corrupt, incompatible, or missing checkpoints are recorded as failures rather
-than silently restarting. `ESTIMATE_ONLY=1` measures pilot timing on the
-actual selected device and writes `telemetry/timing.json`.
+`outputs/<run_id>/checkpoints/<model>/seed_<seed>/fold_<fold>/`. After checking
+the run identity, `auto` skips units with a completion marker and the required
+nonempty metrics, returns, predictions, and executed-notebook files. Other
+units execute again. The checkpoint loader tries `latest.pt`, then
+`previous_latest.pt` if the first candidate is unreadable or incompatible.
+The trainer restores a compatible checkpoint and continues at the next epoch;
+it rejects invalid training state. If candidates exist but none can be loaded
+compatibly, the unit fails rather than silently starting over.
+
+Retries within one invocation differ from launching the runner again. After
+a unit fails, `MAX_RETRIES` permits additional attempts only if the shell finds
+a readable latest or previous checkpoint with matching model, seed, and fold.
+The notebook and trainer then enforce the remaining compatibility and state
+checks. Without such a checkpoint, that invocation stops retrying the unit.
+On a subsequent `auto` invocation with a matching run identity, an unfinished
+unit with neither checkpoint present starts training from epoch zero. Missing
+checkpoints alone therefore do not make every later invocation fail.
+
+`ESTIMATE_ONLY=1` measures pilot timing on the actual selected device and
+writes `telemetry/timing.json`.
 The pilot ends with status `pilot_complete` and does not produce a ZIP.
 
 ## Outputs and portable archive
@@ -267,14 +282,23 @@ outputs/<run_id>/
 └── notebooks/      # executed notebook copies
 ```
 
-The runner copies the source code and execution files, including `LICENSE` and
-`requirements.cpu.txt`, into the run tree,
-creates `bundle_manifest.json` with SHA-256 checksums, writes
-`Final_Metrics.md`, creates `artifacts/<run_id>.zip`, and verifies it with
-Python's `ZipFile.testzip()` and SHA-256 checks before reporting success. The ZIP includes checkpoints by default; opt out with
+After validation, the report notebook writes the run's `Final_Metrics.md`.
+The runner copies it to the repository root before copying the source code
+and execution files, including `LICENSE` and `requirements.cpu.txt`, into the
+run tree. It then creates `bundle_manifest.json` with SHA-256 checksums and
+builds a temporary ZIP. Python's `ZipFile.testzip()` and per-file SHA-256 checks
+must pass before the temporary archive is moved to `artifacts/<run_id>.zip`
+and the runner reports success. The ZIP includes checkpoints by default; opt out with
 `PACKAGE_CHECKPOINTS=0` or PowerShell's `-ExcludeCheckpoints`. Raw data is
-excluded and `INCLUDE_DATA=1` is rejected. Failed runs preserve partial logs, telemetry, and
-checkpoints but do not create a publishable ZIP.
+excluded and `INCLUDE_DATA=1` is rejected.
+
+A failed invocation returns a nonzero status and preserves whatever partial
+logs, telemetry, and checkpoints it has written. Packaging can fail after the
+root report has already been updated. The runner removes a preexisting ZIP
+for the same run ID only after its run-identity checks succeed, so an earlier
+failure can leave an older archive in place. Neither report nor archive
+existence proves that the latest invocation succeeded; check its exit status
+and run records. A failed invocation does not publish a new verified ZIP.
 
 ## Replaying a completed run
 

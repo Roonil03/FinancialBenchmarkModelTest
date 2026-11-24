@@ -71,5 +71,12 @@ the selected run directory.
 
 Successful full runs produce `outputs/<run_id>/`, root `Final_Metrics.md`, and
 `artifacts/<run_id>.zip`. A timing-only pilot reports `pilot_complete` and
-does not create a ZIP. Failed runs preserve partial telemetry and
-checkpoints, return a nonzero status, and never create a ZIP.
+does not create a ZIP. The root report is copied before packaging, so it can
+be updated even if ZIP creation later fails. A failed invocation returns a
+nonzero status and retains any partial telemetry and checkpoints already
+written; it does not publish a new verified ZIP.
+
+A prior ZIP for the same run ID is removed only after run-identity checks
+succeed. An earlier failure can leave that older archive in place. Report or
+archive existence alone does not establish success for the latest invocation;
+check its exit status and run records.
