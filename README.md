@@ -82,11 +82,11 @@ Git and is excluded from result archives.
 
 The evaluation is designed to use chronological test data after selecting
 configurations on validation data. Sharpe ratio measures return relative to
-volatility; mean squared error (MSE) measures prediction error. Transaction
-costs are expressed in basis points (one basis point is 0.01%). Each run must
-report its own seeds, dates, sample sizes, and uncertainty.
+volatility. Here, mean squared error (MSE) compares trading signals with returns.
+Transaction costs are expressed in basis points (one basis point is 0.01%).
+Each run must report its own seeds, dates, sample sizes, and uncertainty.
 
-| Dimension | Metrics and statistics |
+| Dimension | Evaluation goals |
 |---|---|
 | Economic performance | Annualized return, annualized volatility, Sharpe ratio, Sortino ratio, maximum drawdown, and downside deviation. |
 | Predictive quality | Mean squared error (MSE), directional accuracy, and signal/return correlation. |
@@ -106,6 +106,15 @@ The [generated metrics](Final_Metrics.md) are preserved verbatim. Their standard
 deviations mix seed and year variation and are not confidence intervals. MSE
 compares trading signals with returns, not calibrated return forecasts. Repeated
 baseline seeds and pooled regime counts do not create independent market days.
+
+The committed [5-bps unit metrics](docs/runs/india-study/unit_metrics_5bps.csv)
+and [regime metrics](docs/runs/india-study/unit_regimes_5bps.csv) show which
+evaluation goals have saved results. Their confidence intervals cover only
+per-unit regime Sharpe, with no paired architecture-superiority results.
+The [uncertainty review](docs/analysis-2026-11-15.md#regimes-and-uncertainty)
+explains the bootstrap's minimum sample size, sparse and absent regimes, and
+why repeated seeds do not enlarge the market sample.
+
 Read the [full review](docs/analysis-2026-11-15.md) and
 [small evidence subset](docs/runs/india-study/) before citing these results.
 
@@ -126,7 +135,17 @@ not part of the published four-model benchmark.
 
 For a synthetic CPU development environment, install pinned packages from
 `requirements.cpu.txt` in a local virtual environment and run only targeted
-tests. The benchmark runner uses the pinned container. Reproduce any
+tests. Testing files are ignored and untracked in this revision, so a fresh
+checkout does not ship the optional local suite. The
+[validation notebook](notebooks/30_validation.ipynb) runs it when present and
+records its absence otherwise. The India archive's historical test counts are
+documented in the [review](docs/analysis-2026-11-15.md#completion-and-provenance);
+they do not validate the current checkout.
+
+Required full-run gates remain in that notebook and the [runner](run_all_models.sh),
+covering data/alignment, unit/checkpoint integrity, device/model preflight and
+archive verification. An absent optional suite does not waive these checks.
+The benchmark runner uses the pinned container. Reproduce any
 claim with the data hash, Git commit, resolved configuration, seeds, folds,
 fees, dependency lock, and complete run archive.
 
