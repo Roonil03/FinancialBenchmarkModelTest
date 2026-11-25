@@ -1,4 +1,4 @@
-# Results provenance
+# Pre-audit results provenance
 
 The existing tables and figures were generated before the September 2026
 methodology audit. They are preserved to avoid destroying prior work, but they
@@ -16,5 +16,5 @@ Reasons regeneration is required:
   or license used for these outputs.
 
 Do not delete these artifacts. Regenerate them into a new timestamped results
-directory after completing the audited workflow in `../RunningNotebooks.md`,
+directory after completing the [audited workflow](../RunningNotebooks.md),
 then compare the audited outputs with this preserved baseline.

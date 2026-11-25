@@ -11,14 +11,28 @@ not satisfy the runner's image check.
 
 - NVIDIA driver compatible with CUDA 12.4.
 - Docker Desktop/Engine with Compose v2 and NVIDIA Container Toolkit support.
-- The selected dataset under the repository's `data/` directory; see
-  [RunningNotebooks.md](RunningNotebooks.md) for source-specific files.
+- Access to the selected dataset; the runners prepare missing Indian or FRED
+  inputs under `data/`. See [RunningNotebooks.md](RunningNotebooks.md) for
+  source-specific files and optional preparation commands.
 
 ## Run
+
+From Git Bash or WSL at the repository root, set a private, nonempty token in
+the same shell before running any Compose or runner command. Compose requires
+`JUPYTER_TOKEN` even when the benchmark is launched without opening JupyterLab:
+
+```bash
+read -rs -p 'Jupyter token: ' JUPYTER_TOKEN
+export JUPYTER_TOKEN
+```
 
 ```bash
 DATASET_MODE=india_indices FOLDS= ./run_all_models.sh
 ```
+
+`india_indices` is the default dataset. The missing-value and cross-market
+alignment guards described in [RunningNotebooks.md](RunningNotebooks.md)
+apply to the separate legacy `global_indian` selection.
 
 When invoked on the host, the script checks the Docker daemon, reuses the
 local image or builds it if missing, starts the Jupyter
@@ -35,7 +49,13 @@ DATASET_MODE=india_indices RUN_ID=full DEVICE=gpu RESUME_MODE=auto MAX_RETRIES=2
 ```
 
 `DEVICE=gpu` fails fast when CUDA is unavailable. CPU use must be explicit with
-`DEVICE=cpu`. `RESUME_MODE` is `auto`, `restart`, or `fail`. Raw data is omitted
+`DEVICE=cpu`; this selects CPU computation inside the container. The supplied
+Compose service still requests `gpus: all`, so its NVIDIA host requirements
+also apply to CPU runs. `ESTIMATE_ONLY=1` uses the first selected seed and fold
+on the selected device with `EPOCHS=1`. Each selected model still runs bounded
+validation tuning before its final training epoch; measured time covers the
+whole benchmark notebook, including tuning, evaluation and notebook overhead.
+`RESUME_MODE` is `auto`, `restart`, or `fail`. Raw data is omitted
 from the final ZIP; `INCLUDE_DATA=1` is rejected. Checkpoints are included
 by default; `PACKAGE_CHECKPOINTS=0` excludes them.
 
@@ -53,5 +73,12 @@ the selected run directory.
 
 Successful full runs produce `outputs/<run_id>/`, root `Final_Metrics.md`, and
 `artifacts/<run_id>.zip`. A timing-only pilot reports `pilot_complete` and
-does not create a ZIP. Failed runs preserve partial telemetry and
-checkpoints, return a nonzero status, and never create a ZIP.
+does not create a ZIP. The root report is copied before packaging, so it can
+be updated even if ZIP creation later fails. A failed invocation returns a
+nonzero status and retains any partial telemetry and checkpoints already
+written; it does not publish a new verified ZIP.
+
+A prior ZIP for the same run ID is removed only after run-identity checks
+succeed. An earlier failure can leave that older archive in place. Report or
+archive existence alone does not establish success for the latest invocation;
+check its exit status and run records.

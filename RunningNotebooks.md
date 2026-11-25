@@ -1,11 +1,13 @@
 # Running the notebook benchmark
 
-> **Global Indian data restriction:** The benchmark rejects selected price series with
-> missing values and rejects multiple market series until close timestamps and
-> execution availability have been verified. The legacy mode's default five-asset selection
-> therefore cannot currently complete. Review the data and select an eligible
-> series before executing. The Indian primary and separate US datasets are
-> described below.
+The default dataset is `india_indices`, the Indian primary study described
+below; `fred_sectors` is the separate US comparison.
+
+> **Legacy `global_indian` restriction:** In this separate mode, the benchmark
+> rejects selected price series with missing values and rejects multiple market
+> series until close timestamps and execution availability have been verified.
+> Its default five-asset selection therefore cannot currently complete. Review
+> the data and select an eligible series before executing legacy mode.
 
 This document contains the execution instructions for the notebook suite. The
 recommended path is the pinned CUDA Docker image; it keeps the host Python
@@ -29,6 +31,26 @@ Mamba implementation is unavailable.
 - Enough disk space for checkpoints, figures, executed notebooks, and the ZIP
   archive. Raw datasets are excluded from archives.
 
+## Required token setup
+
+Before any Compose or runner command below, set `JUPYTER_TOKEN` to a private,
+nonempty value in the shell you will use. Compose requires the token even for
+data preparation or a benchmark launched without opening JupyterLab. The
+Jupyter service binds to host loopback and requires this token.
+
+In PowerShell:
+
+```powershell
+$env:JUPYTER_TOKEN = Read-Host 'Jupyter token'
+```
+
+In Git Bash or WSL:
+
+```bash
+read -rs -p 'Jupyter token: ' JUPYTER_TOKEN
+export JUPYTER_TOKEN
+```
+
 ## Indian sector data
 
 The primary study uses the pinned third-party [Indian market historical dataset](https://github.com/aswinv90/indian-market-historical-data).
@@ -48,9 +70,16 @@ through that cutoff. Input features and sizing volatility are lagged one
 observed session; exact close-time execution is not established. Adjusted
 Close has not been verified as dividend-adjusted.
 
-The PowerShell and Bash runners can be prepared explicitly in the container, use
-`docker compose run --rm jupyter /opt/venv/bin/python scripts/prepare_india_indices.py`.
-The preparation script validates existing files and refuses hash mismatches.
+The PowerShell and Bash runners automatically download missing Indian input
+files. To prepare the data explicitly in the container before either runner,
+use:
+
+```bash
+docker compose run --rm jupyter /opt/venv/bin/python scripts/prepare_india_indices.py
+```
+
+The preparation script validates existing files and refuses hash mismatches;
+the PowerShell wrapper also checks existing hashes before launching Docker.
 
 ## FRED US sector data
 
@@ -80,15 +109,13 @@ market sample; do not pool rankings across datasets.
 
 ## Docker runner (recommended)
 
-Set `JUPYTER_TOKEN` to a private, nonempty value before starting Compose. The
-service binds to host loopback and requires this token. Native Windows does
-not provide the supported CUDA extension build path for genuine Mamba in this
-project; use WSL2 with NVIDIA Container Toolkit or the CUDA container.
+Complete the required token setup above in the same shell. Native Windows
+does not provide the supported CUDA extension build path for genuine Mamba in
+this project; use WSL2 with NVIDIA Container Toolkit or the CUDA container.
 
 For PowerShell 5.1 or 7, use `scripts/run_dl_benchmark.ps1`. For example:
 
 ```powershell
-$env:JUPYTER_TOKEN = Read-Host 'Jupyter token'
 .\scripts\run_dl_benchmark.ps1 -DatasetMode india_indices -Device gpu -WhatIf
 .\scripts\run_dl_benchmark.ps1 -DatasetMode india_indices -Device gpu -RunId india-study
 ```
@@ -102,8 +129,8 @@ explicit CPU selection.
 Checkpoint files use PyTorch serialization; load only checkpoints from trusted
 authors and keep raw market data and credentials outside the result archive.
 
-With the Indian sector data prepared as described above, run from Git Bash or WSL at
-the repository root:
+Run from Git Bash or WSL at the repository root; missing Indian input files
+are prepared automatically:
 
 ```bash
 DATASET_MODE=india_indices ./run_all_models.sh
@@ -147,7 +174,9 @@ docker compose run --rm `
 ```
 
 For a CPU smoke test, use `DEVICE=cpu` explicitly. GPU mode never silently
-falls back to CPU.
+falls back to CPU. This setting selects CPU computation inside the container;
+the supplied Compose service still requests `gpus: all` and requires an
+NVIDIA-capable Docker host even for a CPU smoke test.
 
 ## Runner parameters
 
@@ -163,11 +192,11 @@ falls back to CPU.
 | `DEVICE` | `gpu` | `gpu` or explicit `cpu`. |
 | `RESUME_MODE` | `auto` | `auto` resumes compatible units; `restart` archives prior state; `fail` refuses an existing run. |
 | `EPOCHS` | `100` | Positive training epoch count. |
-| `MAX_RETRIES` | `2` | Retries after a failure only when a compatible checkpoint exists. |
+| `MAX_RETRIES` | `2` | Additional attempts within the invocation, gated by a readable latest or previous checkpoint with matching model/seed/fold; the trainer then checks full compatibility. |
 | `OUTPUT_ROOT` | `outputs` | Root directory for run outputs. |
 | `INCLUDE_DATA` | `0` | Raw source data cannot be included; `1` is rejected. |
 | `PACKAGE_CHECKPOINTS` | `1` | Set to `0` to omit checkpoints from the ZIP; PowerShell uses `-ExcludeCheckpoints`. |
-| `ESTIMATE_ONLY` | `0` | Set to `1` for a measured one-epoch GPU timing pilot. |
+| `ESTIMATE_ONLY` | `0` | Set to `1` for a measured benchmark-notebook pilot on the selected device, per selected model using the first selected seed and fold with `EPOCHS=1`. Includes tuning and notebook overhead. |
 
 Examples from Git Bash/WSL (the CPU smoke test is for development checks,
 not the full GPU benchmark):
@@ -215,11 +244,29 @@ an absent optional suite as tests passing.
 ## Resume, failure, and timing behaviour
 
 Each unit writes atomic checkpoints under
-`outputs/<run_id>/checkpoints/<model>/seed_<seed>/fold_<fold>/`. In `auto` mode, completed
-units are skipped and failed units resume only from a compatible checkpoint.
-Corrupt, incompatible, or missing checkpoints are recorded as failures rather
-than silently restarting. `ESTIMATE_ONLY=1` measures pilot timing on the
-actual selected device and writes `telemetry/timing.json`.
+`outputs/<run_id>/checkpoints/<model>/seed_<seed>/fold_<fold>/`. After checking
+the run identity, `auto` skips units with a completion marker and the required
+nonempty metrics, returns, predictions, and executed-notebook files. Other
+units execute again. The checkpoint loader tries `latest.pt`, then
+`previous_latest.pt` if the first candidate is unreadable or incompatible.
+The trainer restores a compatible checkpoint and continues at the next epoch;
+it rejects invalid training state. If candidates exist but none can be loaded
+compatibly, the unit fails rather than silently starting over.
+
+Retries within one invocation differ from launching the runner again. After
+a unit fails, `MAX_RETRIES` permits additional attempts only if the shell finds
+a readable latest or previous checkpoint with matching model, seed, and fold.
+The notebook and trainer then enforce the remaining compatibility and state
+checks. Without such a checkpoint, that invocation stops retrying the unit.
+On a subsequent `auto` invocation with a matching run identity, an unfinished
+unit with neither checkpoint present starts training from epoch zero. Missing
+checkpoints alone therefore do not make every later invocation fail.
+
+`ESTIMATE_ONLY=1` uses the first selected seed and fold with `EPOCHS=1` on the
+actual selected device. Bounded validation tuning still runs before the final
+training epoch (two one-epoch tuning trials with the supplied configuration).
+`telemetry/timing.json` records whole benchmark-notebook durations, including
+tuning, evaluation and notebook overhead, rather than isolated epoch timings.
 The pilot ends with status `pilot_complete` and does not produce a ZIP.
 
 ## Outputs and portable archive
@@ -238,14 +285,23 @@ outputs/<run_id>/
 └── notebooks/      # executed notebook copies
 ```
 
-The runner copies the source code and execution files, including `LICENSE` and
-`requirements.cpu.txt`, into the run tree,
-creates `bundle_manifest.json` with SHA-256 checksums, writes
-`Final_Metrics.md`, creates `artifacts/<run_id>.zip`, and verifies it with
-Python's `ZipFile.testzip()` and SHA-256 checks before reporting success. The ZIP includes checkpoints by default; opt out with
+After validation, the report notebook writes the run's `Final_Metrics.md`.
+The runner copies it to the repository root before copying the source code
+and execution files, including `LICENSE` and `requirements.cpu.txt`, into the
+run tree. It then creates `bundle_manifest.json` with SHA-256 checksums and
+builds a temporary ZIP. Python's `ZipFile.testzip()` and per-file SHA-256 checks
+must pass before the temporary archive is moved to `artifacts/<run_id>.zip`
+and the runner reports success. The ZIP includes checkpoints by default; opt out with
 `PACKAGE_CHECKPOINTS=0` or PowerShell's `-ExcludeCheckpoints`. Raw data is
-excluded and `INCLUDE_DATA=1` is rejected. Failed runs preserve partial logs, telemetry, and
-checkpoints but do not create a publishable ZIP.
+excluded and `INCLUDE_DATA=1` is rejected.
+
+A failed invocation returns a nonzero status and preserves whatever partial
+logs, telemetry, and checkpoints it has written. Packaging can fail after the
+root report has already been updated. The runner removes a preexisting ZIP
+for the same run ID only after its run-identity checks succeed, so an earlier
+failure can leave an older archive in place. Neither report nor archive
+existence proves that the latest invocation succeeded; check its exit status
+and run records. A failed invocation does not publish a new verified ZIP.
 
 ## Replaying a completed run
 

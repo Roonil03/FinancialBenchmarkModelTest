@@ -1,6 +1,7 @@
 # Methodology audit and verification
-Its changes apply to future
-runs; they do not retroactively change the historical `full-validation` run.
+
+The methodology audit merged in commit `02be460`. Its changes apply to runs
+after that merge. The historical `full-validation` run used the earlier code.
 
 The audit aligned training and validation with volatility-scaled portfolio
 positions, corrected and distinguished strategy baselines, isolated
